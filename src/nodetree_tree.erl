@@ -48,9 +48,9 @@
     get_node/3, get_node/2, get_node/1, get_nodes/2,
     get_nodes/1, get_parentnodes/3, get_parentnodes_tree/3,
     get_subnodes/3, get_subnodes_tree/3, create_node/6,
-    delete_node/2]).
+    delete_node/2, sm_open_connection/3, sm_remove_connection/3]).
 
-init(_Host, _ServerHost, _Options) ->
+init(_Host, ServerHost, _Options) ->
     mnesia:create_table(pubsub_node,
 	[{disc_copies, [node()]},
 	    {attributes, record_info(fields, pubsub_node)}]),
@@ -60,11 +60,22 @@ init(_Host, _ServerHost, _Options) ->
 	NodesFields -> ok;
 	_ -> ok
     end,
-    %% mnesia:transform_table(pubsub_state, ignore, StatesFields)
+    %% mnesia:transform_table(pubsub_state, ignore, StatesFields),
+    ejabberd_hooks:add(sm_register_connection_hook, ServerHost, ?MODULE, sm_open_connection, 75),
+    ejabberd_hooks:add(sm_remove_connection_hook, ServerHost, ?MODULE, sm_remove_connection, 75),
     ok.
 
-terminate(_Host, _ServerHost) ->
+terminate(_Host, ServerHost) ->
+    ejabberd_hooks:delete(sm_register_connection_hook, ServerHost, ?MODULE, sm_open_connection, 75),
+    ejabberd_hooks:delete(sm_remove_connection_hook, ServerHost, ?MODULE, sm_remove_connection, 75),
     ok.
+
+sm_open_connection(_SID, #jid{luser=LUser,lserver=LServer,lresource=LResource} = JID, _Info) ->
+    % in case cleanup was not performed when the client logged out, try now
+    mod_pubsub:remove_subscriptions(LUser, LServer, LResource).
+
+sm_remove_connection(_SID, #jid{luser=LUser,lserver=LServer,lresource=LResource} = JID, _Info) ->
+    mod_pubsub:remove_subscriptions(LUser, LServer, LResource).
 
 options() ->
     [{virtual_tree, false}].

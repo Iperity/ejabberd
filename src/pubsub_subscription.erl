@@ -50,7 +50,8 @@
 	"(aggregations) of notifications or all notifications individually">>).
 -define(DIGEST_FREQUENCY_LABEL, <<"The minimum number of milliseconds between "
 	"sending any two notification digests">>).
--define(EXPIRE_LABEL, <<"The DateTime at which a leased subscription will end or has ended">>).
+-define(EXPIRE_LABEL, <<"The DateTime at which a leased subscription will end or has ended, "
+	"or presence for a presence-based subscription">>).
 -define(INCLUDE_BODY_LABEL, <<"Whether an entity wants to receive an "
 	"XMPP message body in addition to the payload format">>).
 -define(SHOW_VALUES_LABEL, <<"The presence states for which an entity wants to receive notifications">>).
