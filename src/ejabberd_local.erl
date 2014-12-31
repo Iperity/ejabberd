@@ -37,7 +37,7 @@
 	 register_iq_handler/5, register_iq_response_handler/4,
 	 register_iq_response_handler/5, unregister_iq_handler/2,
 	 unregister_iq_response_handler/2, refresh_iq_handlers/0,
-	 bounce_resource_packet/3]).
+	 bounce_resource_packet/3, add_vhost/1, remove_vhost/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2,
@@ -184,12 +184,7 @@ bounce_resource_packet(From, To, Packet) ->
 %%--------------------------------------------------------------------
 init([]) ->
     lists:foreach(fun (Host) ->
-			  ejabberd_router:register_route(Host,
-							 {apply, ?MODULE,
-							  route}),
-			  ejabberd_hooks:add(local_send_to_resource_hook, Host,
-					     ?MODULE, bounce_resource_packet,
-					     100)
+    			add_vhost(Host)
 		  end,
 		  ?MYHOSTS),
     catch ets:new(?IQTABLE, [named_table, public]),
@@ -198,7 +193,56 @@ init([]) ->
 			[{ram_copies, [node()]},
 			 {attributes, record_info(fields, iq_response)}]),
     mnesia:add_table_copy(iq_response, node(), ram_copies),
+    ejabberd_hooks:add(add_vhost, ?MODULE, add_vhost, 50),
+    ejabberd_hooks:add(remove_vhost, ?MODULE, remove_vhost, 50),
     {ok, #state{}}.
+
+add_vhost(Host) ->
+	ejabberd_router:register_route(Host,
+			{apply, ?MODULE,
+				route}),
+	ejabberd_hooks:add(local_send_to_resource_hook, Host,
+		    ?MODULE, bounce_resource_packet,
+			    100).
+
+remove_vhost(Host) ->
+	ejabberd_hooks:delete(local_send_to_resource_hook, Host,
+			?MODULE, bounce_resource_packet, 50),
+	ejabberd_router:unregister_route(Host).
+
+handle_request(Request, State) ->
+	case Request of
+		{add_vhost, Vhost} ->
+			
+			case lists:member(Vhost, ?MYHOSTS) of
+				true -> ?INFO_MSG("Adding vhost ~p but already existed...", [Vhost]);
+				false ->
+					% TODO: broadcast to other erlang nodes!
+
+					NewList = [Vhost | ?MYHOSTS],
+					ejabberd_config:add_global_option(hosts, NewList),
+
+					ejabberd_app:start_modules(Vhost),
+
+					ejabberd_hooks:run(add_vhost, [Vhost])
+			end;
+
+		{remove_vhost, Vhost} ->
+			case lists:member(Vhost, ?MYHOSTS) of
+				false -> ?INFO_MSG("Removing vhost ~p but did not exist...", [Vhost]);
+				true ->
+					% TODO: broadcast to other erlang nodes!
+
+					NewList = lists:delete(Vhost, ?MYHOSTS),
+					ejabberd_config:add_global_option(hosts, NewList),
+
+					ejabberd_hooks:run(remove_vhost, [Vhost]),
+					ejabberd_app:stop_modules(Vhost)
+			end			
+
+	end,
+
+	Reply = ok, {reply, Reply, State}.
 
 %%--------------------------------------------------------------------
 %% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
@@ -209,22 +253,25 @@ init([]) ->
 %%                                      {stop, Reason, State}
 %% Description: Handling call messages
 %%--------------------------------------------------------------------
-handle_call(_Request, _From, State) ->
+handle_call(Request, _From, State) ->
+	handle_request(Request, State).
+
 %%--------------------------------------------------------------------
 %% Function: handle_cast(Msg, State) -> {noreply, State} |
 %%                                      {noreply, State, Timeout} |
 %%                                      {stop, Reason, State}
 %% Description: Handling cast messages
 %%--------------------------------------------------------------------
+handle_cast(Msg, State) ->
+	handle_request(Msg, State),
+	{noreply, State}.
+
 %%--------------------------------------------------------------------
 %% Function: handle_info(Info, State) -> {noreply, State} |
 %%                                       {noreply, State, Timeout} |
 %%                                       {stop, Reason, State}
 %% Description: Handling all non call/cast messages
 %%--------------------------------------------------------------------
-    Reply = ok, {reply, Reply, State}.
-
-handle_cast(_Msg, State) -> {noreply, State}.
 
 handle_info({route, From, To, Packet}, State) ->
     case catch do_route(From, To, Packet) of
