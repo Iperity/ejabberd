@@ -1350,6 +1350,13 @@ handle_event(_Event, StateName, StateData) ->
 %%          {stop, Reason, NewStateData}                          |
 %%          {stop, Reason, Reply, NewStateData}
 %%----------------------------------------------------------------------
+
+%% IPerity
+handle_sync_event({get_presence_packet}, _From, StateName,
+		  StateData) ->
+	Reply = StateData#state.pres_last,
+	fsm_reply(Reply, StateName, StateData);
+	
 handle_sync_event({get_presence}, _From, StateName,
 		  StateData) ->
     User = StateData#state.user,

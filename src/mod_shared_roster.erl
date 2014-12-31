@@ -39,7 +39,7 @@
 	 set_group_opts/3, get_group_users/2,
 	 get_group_explicit_users/2, is_user_in_group/3,
 	 add_user_to_group/3, remove_user_from_group/3,
-	 remove_vhost/1]).
+	 remove_vhost/1, push_item/4]).
 
 -include("ejabberd.hrl").
 -include("logger.hrl").
