@@ -31,6 +31,7 @@
 	 get_global_option/2, get_local_option/2,
          get_global_option/3, get_local_option/3,
          get_option/2, get_option/3, add_option/2,
+         remove_option/1, get_ejabberd_config_path/0,
          get_vh_by_auth_method/1, is_file_readable/1,
          get_version/0, get_myhosts/0, get_mylang/0,
          prepare_opt_val/4, convert_table_to_binary/5,
@@ -684,6 +685,11 @@ add_option(Opt, Val) ->
 			       mnesia:write(#local_config{key = Opt,
 							  value = Val})
 		       end).
+
+remove_option(Opt) ->
+    mnesia:transaction(fun() ->
+              mnesia:delete({local_config, Opt})
+            end).
 
 -spec prepare_opt_val(any(), any(), check_fun(), any()) -> any().
 

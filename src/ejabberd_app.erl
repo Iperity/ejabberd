@@ -31,7 +31,7 @@
 -behaviour(application).
 
 -export([start_modules/0, start/2, prep_stop/1, stop/1,
-	 init/0, opt_type/1]).
+	 init/0, opt_type/1, start_modules/1, stop_modules/1]).
 
 -include("ejabberd.hrl").
 -include("logger.hrl").
@@ -139,38 +139,43 @@ db_init() ->
 %% Start all the modules in all the hosts
 start_modules() ->
     lists:foreach(
-      fun(Host) ->
-              Modules = ejabberd_config:get_option(
-                          {modules, Host},
-                          fun(Mods) ->
-                                  lists:map(
-                                    fun({M, A}) when is_atom(M), is_list(A) ->
-                                            {M, A}
-                                    end, Mods)
-                          end, []),
-              lists:foreach(
-                fun({Module, Args}) ->
-                        gen_mod:start_module(Host, Module, Args)
-                end, Modules)
+      fun(Host) -> start_modules(Host)
       end, ?MYHOSTS).
+
+
+start_modules(Host) ->
+    Modules = ejabberd_config:get_option(
+                {modules, Host},
+                fun(Mods) ->
+                        lists:map(
+                          fun({M, A}) when is_atom(M), is_list(A) ->
+                                  {M, A}
+                          end, Mods)
+                end, []),
+    lists:foreach(
+      fun({Module, Args}) ->
+              gen_mod:start_module(Host, Module, Args)
+      end, Modules).
 
 %% Stop all the modules in all the hosts
 stop_modules() ->
     lists:foreach(
-      fun(Host) ->
-              Modules = ejabberd_config:get_option(
-                          {modules, Host},
-                          fun(Mods) ->
-                                  lists:map(
-                                    fun({M, A}) when is_atom(M), is_list(A) ->
-                                            {M, A}
-                                    end, Mods)
-                          end, []),
-              lists:foreach(
-                fun({Module, _Args}) ->
-                        gen_mod:stop_module_keep_config(Host, Module)
-                end, Modules)
+      fun(Host) -> stop_modules(Host)
       end, ?MYHOSTS).
+
+stop_modules(Host) ->
+    Modules = ejabberd_config:get_option(
+                {modules, Host},
+                fun(Mods) ->
+                        lists:map(
+                          fun({M, A}) when is_atom(M), is_list(A) ->
+                                  {M, A}
+                          end, Mods)
+                end, []),
+    lists:foreach(
+      fun({Module, _Args}) ->
+              gen_mod:stop_module_keep_config(Host, Module)
+      end, Modules).
 
 connect_nodes() ->
     Nodes = ejabberd_config:get_option(

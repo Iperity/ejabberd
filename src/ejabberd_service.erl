@@ -123,6 +123,7 @@ socket_type() -> xml_stream.
 %%----------------------------------------------------------------------
 init([{SockMod, Socket}, Opts]) ->
     ?INFO_MSG("(~w) External service connected", [Socket]),
+
     Access = case lists:keysearch(access, 1, Opts) of
 	       {value, {_, A}} -> A;
 	       _ -> all
@@ -309,7 +310,36 @@ handle_event(_Event, StateName, StateData) ->
 %%          {stop, Reason, NewStateData}                          |
 %%          {stop, Reason, Reply, NewStateData}
 %%----------------------------------------------------------------------
-handle_sync_event(_Event, _From, StateName,
+% IPERITY
+handle_sync_event({add_host, NewHost}, _From, StateName, StateData) ->
+	OldHosts = StateData#state.hosts,
+	case lists:member(NewHost, OldHosts) of
+		true ->
+			NewStateData = StateData;
+		false -> 
+			?INFO_MSG("Adding host: ~p\n", [NewHost]),
+			ejabberd_router:register_route(NewHost),
+			?INFO_MSG("Adding host: ~p...done\n", [NewHost]),
+			NewStateData = StateData#state{
+				hosts = [NewHost | OldHosts] }
+ 	end,
+ 	?INFO_MSG("handle_sync_event: returning\n",[]),
+ 	{reply, ok, StateName, NewStateData};
+
+handle_sync_event({remove_host, Host}, _From, StateName, StateData) ->
+	?INFO_MSG("Removing host: ~p", [Host]),
+	OldHosts = StateData#state.hosts,
+	case lists:member(Host, OldHosts) of
+		false ->
+			NewStateData = StateData;
+		true ->
+			ejabberd_router:unregister_route(Host),
+			NewStateData = StateData#state{
+				hosts = lists:delete(Host, OldHosts) }
+ 	end,
+ 	{reply, ok, StateName, NewStateData};
+
+ handle_sync_event(_Event, _From, StateName,
 		  StateData) ->
     Reply = ok, {reply, Reply, StateName, StateData}.
 
@@ -347,6 +377,7 @@ handle_info({route, From, To, Packet}, StateName,
 	  ejabberd_router:route_error(To, From, Err, Packet)
     end,
     {next_state, StateName, StateData};
+
 handle_info(Info, StateName, StateData) ->
     ?ERROR_MSG("Unexpected info: ~p", [Info]),
     {next_state, StateName, StateData}.

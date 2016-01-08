@@ -39,7 +39,8 @@
 	 delete_group/2, get_group_opts/2, set_group_opts/3,
 	 get_group_users/2, get_group_explicit_users/2,
 	 is_user_in_group/3, add_user_to_group/3,
-	 remove_user_from_group/3, mod_opt_type/1]).
+	 remove_user_from_group/3, mod_opt_type/1,
+	 remove_vhost/1]).
 
 -include("ejabberd.hrl").
 -include("logger.hrl").
@@ -96,7 +97,9 @@ start(Host, Opts) ->
     ejabberd_hooks:add(anonymous_purge_hook, Host, ?MODULE,
 		       remove_user, 50),
     ejabberd_hooks:add(remove_user, Host, ?MODULE,
-		       remove_user, 50).
+		       remove_user, 50),
+    ejabberd_hooks:add(remove_vhost, ?MODULE,
+    		   remove_vhost, 50).
 
 stop(Host) ->
     ejabberd_hooks:delete(webadmin_menu_host, Host, ?MODULE,
@@ -125,9 +128,16 @@ stop(Host) ->
 			  ?MODULE, remove_user, 50),
     ejabberd_hooks:delete(remove_user, Host, ?MODULE,
 			  remove_user,
-			  50).
+			  50),
     %%ejabberd_hooks:delete(remove_user, Host,
     %%    		  ?MODULE, remove_user, 50),
+	ejabberd_hooks:delete(remove_vhost, ?MODULE,
+			  remove_vhost, 50).
+
+remove_vhost(Host) ->
+	Groups = list_groups(Host),
+	lists:map(fun(Group) -> delete_group(Host, Group) end,
+		Groups).
 
 get_user_roster(Items, US) ->
     {U, S} = US,
