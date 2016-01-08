@@ -56,6 +56,7 @@
          hosts = []                :: [binary()],
          password = <<"">>         :: binary(),
          access                    :: atom(),
+         register_name = none	   :: binary(),
 	 check_from = true         :: boolean()}).
 
 %-define(DBGFSM, true).
@@ -148,11 +149,16 @@ init([{SockMod, Socket}, Opts]) ->
 		  {value, {_, CF}} -> CF;
 		  _ -> true
 		end,
+	RegisterName = case lists:keyfind(name, 1, Opts) of
+		false -> none;
+		{_, Name} -> list_to_atom("component_" ++ binary_to_list(Name))
+	end,
     SockMod:change_shaper(Socket, Shaper),
     {ok, wait_for_stream,
      #state{socket = Socket, sockmod = SockMod,
 	    streamid = new_id(), hosts = Hosts, password = Password,
-	    access = Access, check_from = CheckFrom}}.
+	    access = Access, check_from = CheckFrom,
+	    register_name = RegisterName}}.
 
 %%----------------------------------------------------------------------
 %% Func: StateName/2
@@ -199,6 +205,14 @@ wait_for_handshake({xmlstreamelement, El}, StateData) ->
 						[H])
 			      end,
 			      StateData#state.hosts),
+		% register pid
+	    case StateData#state.register_name of
+	    	none -> ok;
+	    	RegName -> 
+	    		?INFO_MSG("Registering component by name: ~p\n", [RegName]),
+	    		catch erlang:unregister(RegName),
+	    		erlang:register(RegName, self())
+	    end,
 		{next_state, stream_established, StateData};
 	    _ ->
 		send_text(StateData, ?INVALID_HANDSHAKE_ERR),
@@ -351,6 +365,10 @@ terminate(Reason, StateName, StateData) ->
 			end,
 			StateData#state.hosts);
       _ -> ok
+    end,
+    case StateData#state.register_name of
+    	none -> ok;
+    	RegName -> catch erlang:unregister(RegName)
     end,
     (StateData#state.sockmod):close(StateData#state.socket),
     ok.
