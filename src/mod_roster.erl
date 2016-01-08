@@ -50,7 +50,7 @@
 	 webadmin_user/4, get_versioning_feature/2,
 	 roster_versioning_enabled/1, roster_version/2,
 	 record_to_string/1, groups_to_string/1,
-	 mod_opt_type/1]).
+	 mod_opt_type/1, push_item/4]).
 
 -include("ejabberd.hrl").
 -include("logger.hrl").
