@@ -42,7 +42,7 @@
 	 get_password_s/2, get_password_with_authmodule/2,
 	 is_user_exists/2, is_user_exists_in_other_modules/3,
 	 remove_user/2, remove_user/3, plain_password_required/1,
-	 store_type/1, entropy/1]).
+	 store_type/1, entropy/1, start_modules_for_host/1, stop_modules_for_host/1]).
 
 -export([auth_modules/1, opt_type/1]).
 
@@ -78,11 +78,26 @@
 
 start() ->
     %% This is only executed by ejabberd_c2s for non-SASL auth client
+    ejabberd_hooks:add(add_vhost, ?MODULE, start_modules_for_host, 50),
+    ejabberd_hooks:add(remove_vhost, ?MODULE, stop_modules_for_host, 50),
+
     lists:foreach(fun (Host) ->
-			  lists:foreach(fun (M) -> M:start(Host) end,
-					auth_modules(Host))
+    		  start_modules_for_host(Host)
 		  end,
 		  ?MYHOSTS).
+
+start_modules_for_host(Host) ->
+	lists:foreach(fun (M) -> M:start(Host) end,
+					auth_modules(Host)).
+
+stop_modules_for_host(Host) ->
+	lists:foreach(fun
+			(ejabberd_auth_external) -> extauth:stop(Host);
+			(M) -> 
+				%% TODO: there is no stop() function in ejabberd_auth API...
+				%% Try anyways, ejabberd_auth_ldap has a stop
+				catch M:stop()
+		end, auth_modules(Host)).
 
 plain_password_required(Server) ->
     lists:any(fun (M) -> M:plain_password_required() end,

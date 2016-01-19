@@ -1333,6 +1333,10 @@ handle_sync_event({resume_session, Time}, _From, _StateName,
 handle_sync_event({resume_session, _Time}, _From, StateName,
 		  StateData) ->
     {reply, {error, <<"Previous session not found">>}, StateName, StateData};
+%% IPerity
+handle_sync_event({get_presence_packet}, _From, StateName, StateData) ->
+	Reply = StateData#state.pres_last,
+	fsm_reply(Reply, StateName, StateData);
 handle_sync_event(_Event, _From, StateName,
 		  StateData) ->
     Reply = ok, fsm_reply(Reply, StateName, StateData).

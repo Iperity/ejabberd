@@ -53,6 +53,7 @@
 -export([presence_probe/3, caps_add/3, caps_update/3,
     in_subscription/6, out_subscription/4,
     on_user_offline/3, remove_user/2,
+    remove_subscriptions/3,
     disco_local_identity/5, disco_local_features/5,
     disco_local_items/5, disco_sm_identity/5,
     disco_sm_features/5, disco_sm_items/5]).
@@ -774,9 +775,19 @@ unsubscribe_user(Host, Entity, Owner) ->
 	end,
 	plugins(Host)).
 
+%% subscription remove hook handling function
+remove_subscriptions(User, Server, Resource) ->
+    ?INFO_MSG("remove_subscriptions", []),
+    LUser = jlib:nodeprep(User),
+    LServer = jlib:nameprep(Server),
+    LResource = jlib:resourceprep(Resource),
+    Proc = gen_mod:get_module_proc(Server, ?PROCNAME),
+    gen_server:cast(Proc, {remove_subscriptions, LUser, LServer, LResource}).
+
 %% -------
 %% user remove hook handling function
 %%
+
 
 remove_user(User, Server) ->
     LUser = jid:nodeprep(User),
@@ -837,6 +848,48 @@ handle_call(stop, _From, State) ->
 %% Description: Handling cast messages
 %%--------------------------------------------------------------------
 %% @private
+
+handle_cast({remove_subscriptions, LUser, LServer, LResource}, State) ->
+    Host = State#state.host,
+    Owner = jlib:make_jid(LUser, LServer, <<"">>),
+    lists:foreach(fun(Type) ->
+        {result, Subscriptions} = node_action(Host, Type, get_entity_subscriptions, [Host, Owner]),
+        lists:foreach(fun
+            ({Node, subscribed, SubId, {U, S, R}}) when R == LResource ; R == <<>> ->
+                
+		#pubsub_node{id = NodeIdx, options = NodeOptions} = Node,
+		
+		case get_option(NodeOptions, tempsub) of
+			true ->
+				node_action(Host, Type, unsubscribe_node, [NodeIdx, Owner, {U, S, R}, SubId]);
+			false ->
+				JID = jlib:make_jid(U, S, R),
+				SubOptions = case pubsub_subscription:get_subscription(JID, NodeIdx, SubId) of
+					{error, notfound} -> [];	% no record == no subscription options
+					{result, #pubsub_subscription{options = SubOptions1}} -> SubOptions1
+				end, 
+
+				case get_option(SubOptions, expire) of
+					false ->
+                    	ok;
+					<<"presence">> ->
+						node_action(Host, Type, unsubscribe_node, [NodeIdx, Owner, {U, S, R}, SubId]);
+					Time ->
+						case now() > Time of
+							true ->
+								node_action(Host, Type, unsubscribe_node, [NodeIdx, Owner, {U, S, R}, SubId]);
+							false ->
+								ok
+						end
+				end
+		end;	
+	
+            (_) ->
+                ok
+        end, Subscriptions)
+    end, State#state.plugins),
+    {noreply, State};
+
 handle_cast(_Msg, State) -> {noreply, State}.
 
 -spec(handle_info/2 ::
@@ -3776,6 +3829,8 @@ get_configure_xfields(_Type, Options, Lang, Groups) ->
 	    send_last_published_item, [never, on_sub, on_sub_and_presence]),
 	?BOOL_CONFIG_FIELD(<<"Only deliver notifications to available users">>,
 	    presence_based_delivery),
+	?BOOL_CONFIG_FIELD(<<"Whether to make all subscriptions temporary, "
+		"based on subscriber presence">>, tempsub),
 	?NLIST_CONFIG_FIELD(<<"The collections with which a node is affiliated">>,
 	    collection)].
 
@@ -3917,6 +3972,8 @@ set_xoption(Host, [{<<"pubsub#send_last_published_item">>, [Val]} | Opts], NewOp
     ?SET_ALIST_XOPT(send_last_published_item, Val, [never, on_sub, on_sub_and_presence]);
 set_xoption(Host, [{<<"pubsub#presence_based_delivery">>, [Val]} | Opts], NewOpts) ->
     ?SET_BOOL_XOPT(presence_based_delivery, Val);
+set_xoption(Host, [{<<"pubsub#tempsub">>, [Val]} | Opts], NewOpts) ->
+	?SET_BOOL_XOPT(tempsub, Val);
 set_xoption(Host, [{<<"pubsub#purge_offline">>, [Val]} | Opts], NewOpts) ->
     ?SET_BOOL_XOPT(purge_offline, Val);
 set_xoption(Host, [{<<"pubsub#title">>, Value} | Opts], NewOpts) ->

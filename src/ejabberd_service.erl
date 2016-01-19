@@ -56,7 +56,9 @@
          host_opts = dict:new()    :: ?TDICT,
          host = <<"">>             :: binary(),
          access                    :: atom(),
-	 check_from = true         :: boolean()}).
+         check_from = true         :: boolean(),
+         register_name = none      :: binary(),
+         routes = []               :: list()}).
 
 %-define(DBGFSM, true).
 
@@ -122,6 +124,7 @@ socket_type() -> xml_stream.
 %%----------------------------------------------------------------------
 init([{SockMod, Socket}, Opts]) ->
     ?INFO_MSG("(~w) External service connected", [Socket]),
+
     Access = case lists:keysearch(access, 1, Opts) of
 	       {value, {_, A}} -> A;
 	       _ -> all
@@ -151,11 +154,18 @@ init([{SockMod, Socket}, Opts]) ->
 		  {value, {_, CF}} -> CF;
 		  _ -> true
 		end,
+	Routes = dict:fetch_keys(HostOpts),
+	?INFO_MSG("NATHAN: Routes are ~p", [Routes]),
+	RegisterName = case lists:keyfind(name, 1, Opts) of
+		false -> none;
+		{_, Name} -> list_to_atom("component_" ++ binary_to_list(Name))
+	end,
     SockMod:change_shaper(Socket, Shaper),
     {ok, wait_for_stream,
      #state{socket = Socket, sockmod = SockMod,
 	    streamid = new_id(), host_opts = HostOpts,
-	    access = Access, check_from = CheckFrom}}.
+	    access = Access, check_from = CheckFrom,
+	    register_name = RegisterName, routes = Routes}}.
 
 %%----------------------------------------------------------------------
 %% Func: StateName/2
@@ -226,6 +236,14 @@ wait_for_handshake({xmlstreamelement, El}, StateData) ->
 				    ?INFO_MSG("Route registered for service ~p~n",
 					      [H])
 			    end, dict:fetch_keys(StateData#state.host_opts)),
+				% register pid
+				case StateData#state.register_name of
+					none -> ok;
+					RegName -> 
+						?INFO_MSG("Registering component by name: ~p\n", [RegName]),
+						catch erlang:unregister(RegName),
+						erlang:register(RegName, self())
+				end,
 			  {next_state, stream_established, StateData};
 		      _ ->
 			  send_text(StateData, ?INVALID_HANDSHAKE_ERR),
@@ -326,7 +344,35 @@ handle_event(_Event, StateName, StateData) ->
 %%          {stop, Reason, NewStateData}                          |
 %%          {stop, Reason, Reply, NewStateData}
 %%----------------------------------------------------------------------
-handle_sync_event(_Event, _From, StateName,
+% IPERITY
+handle_sync_event({add_host, NewHost}, _From, StateName, StateData) ->
+	case lists:member(NewHost, StateData#state.routes) of
+		true ->
+			NewStateData = StateData;
+		false -> 
+			?INFO_MSG("Adding host: ~p\n", [NewHost]),
+			ejabberd_router:register_route(NewHost),
+			?INFO_MSG("Adding host: ~p...done\n", [NewHost]),
+			NewStateData = StateData#state{
+				routes = [NewHost | StateData#state.routes] }
+ 	end,
+ 	?INFO_MSG("handle_sync_event: returning\n",[]),
+ 	{reply, ok, StateName, NewStateData};
+
+handle_sync_event({remove_host, Host}, _From, StateName, StateData) ->
+	?INFO_MSG("Removing host: ~p", [Host]),
+	OldHosts = StateData#state.routes,
+	case lists:member(Host, OldHosts) of
+		false ->
+			NewStateData = StateData;
+		true ->
+			ejabberd_router:unregister_route(Host),
+			NewStateData = StateData#state{
+				routes = lists:delete(Host, OldHosts) }
+ 	end,
+ 	{reply, ok, StateName, NewStateData};
+
+ handle_sync_event(_Event, _From, StateName,
 		  StateData) ->
     Reply = ok, {reply, Reply, StateName, StateData}.
 
@@ -364,6 +410,7 @@ handle_info({route, From, To, Packet}, StateName,
 	  ejabberd_router:route_error(To, From, Err, Packet)
     end,
     {next_state, StateName, StateData};
+
 handle_info(Info, StateName, StateData) ->
     ?ERROR_MSG("Unexpected info: ~p", [Info]),
     {next_state, StateName, StateData}.
@@ -382,6 +429,10 @@ terminate(Reason, StateName, StateData) ->
 			end,
 			dict:fetch_keys(StateData#state.host_opts));
       _ -> ok
+    end,
+    case StateData#state.register_name of
+    	none -> ok;
+    	RegName -> catch erlang:unregister(RegName)
     end,
     (StateData#state.sockmod):close(StateData#state.socket),
     ok.
