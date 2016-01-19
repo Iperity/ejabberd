@@ -57,8 +57,7 @@
          host = <<"">>             :: binary(),
          access                    :: atom(),
          check_from = true         :: boolean(),
-         register_name = none      :: binary(),
-         routes = []               :: list()}).
+         register_name = none      :: binary()}).
 
 %-define(DBGFSM, true).
 
@@ -154,8 +153,6 @@ init([{SockMod, Socket}, Opts]) ->
 		  {value, {_, CF}} -> CF;
 		  _ -> true
 		end,
-	Routes = dict:fetch_keys(HostOpts),
-	?INFO_MSG("NATHAN: Routes are ~p", [Routes]),
 	RegisterName = case lists:keyfind(name, 1, Opts) of
 		false -> none;
 		{_, Name} -> list_to_atom("component_" ++ binary_to_list(Name))
@@ -165,7 +162,7 @@ init([{SockMod, Socket}, Opts]) ->
      #state{socket = Socket, sockmod = SockMod,
 	    streamid = new_id(), host_opts = HostOpts,
 	    access = Access, check_from = CheckFrom,
-	    register_name = RegisterName, routes = Routes}}.
+	    register_name = RegisterName}}.
 
 %%----------------------------------------------------------------------
 %% Func: StateName/2
@@ -346,29 +343,33 @@ handle_event(_Event, StateName, StateData) ->
 %%----------------------------------------------------------------------
 % IPERITY
 handle_sync_event({add_host, NewHost}, _From, StateName, StateData) ->
-	case lists:member(NewHost, StateData#state.routes) of
+	OldHostOpts = StateData#state.host_opts,
+	case dict:is_key(NewHost, OldHostOpts) of
 		true ->
 			NewStateData = StateData;
 		false -> 
 			?INFO_MSG("Adding host: ~p\n", [NewHost]),
 			ejabberd_router:register_route(NewHost),
 			?INFO_MSG("Adding host: ~p...done\n", [NewHost]),
-			NewStateData = StateData#state{
-				routes = [NewHost | StateData#state.routes] }
+			% find existing host data (password)
+			{ok, Opts} = dict:find(StateData#state.host, OldHostOpts),
+			% and store for new host
+			NewHostOpts = dict:store(NewHost, Opts, OldHostOpts),
+			NewStateData = StateData#state{host_opts = NewHostOpts}
  	end,
  	?INFO_MSG("handle_sync_event: returning\n",[]),
  	{reply, ok, StateName, NewStateData};
 
 handle_sync_event({remove_host, Host}, _From, StateName, StateData) ->
 	?INFO_MSG("Removing host: ~p", [Host]),
-	OldHosts = StateData#state.routes,
-	case lists:member(Host, OldHosts) of
+	OldHostOpts = StateData#state.host_opts,
+	case dict:is_key(Host, OldHostOpts) of
 		false ->
 			NewStateData = StateData;
 		true ->
 			ejabberd_router:unregister_route(Host),
 			NewStateData = StateData#state{
-				routes = lists:delete(Host, OldHosts) }
+				host_opts = dict:erase(Host, OldHostOpts) }
  	end,
  	{reply, ok, StateName, NewStateData};
 
